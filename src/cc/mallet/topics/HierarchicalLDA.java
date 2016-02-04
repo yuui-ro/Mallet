@@ -77,6 +77,32 @@ public class HierarchicalLDA {
 		this.showProgress = showProgress;
 	}
 
+	public void initializeTestDoc(int test_doc) {
+		// Initialize the levels_test and documentLeaves_test for testing data
+		// without adding the initialized statistics to the model
+		levels_test = new int[testing.size()][];
+		documentLeaves_test = new NCRPNode[testing.size()];
+		
+		NCRPNode[] path = new NCRPNode[numLevels];
+		
+		// Randomly select a path allocated for a training document
+		NCRPNode node = documentLeaves[random.nextInt(numDocuments)];
+		for (int level = numLevels - 1; level >= 0; level--) {
+			path[level] = node;
+			node = node.parent;
+		}
+		
+		FeatureSequence fs = (FeatureSequence) testing.get(test_doc).getData();
+		int seqLen = fs.getLength();
+
+		levels_test[test_doc] = new int[seqLen];
+		documentLeaves_test[test_doc] = path[numLevels - 1];
+
+		for (int token = 0; token < seqLen; token++) {
+			levels_test[test_doc][token] = random.nextInt(numLevels);
+		}
+	}
+	
     public void initialize(InstanceList instances, InstanceList testing,
 						   int numLevels, Randoms random) {
 		this.instances = instances;
@@ -101,6 +127,8 @@ public class HierarchicalLDA {
 
 		levels = new int[numDocuments][];
 		documentLeaves = new NCRPNode[numDocuments];
+		levels_test = new int[testing.size()][];
+		documentLeaves_test = new NCRPNode[testing.size()];
 
 		// Initialize and fill the topic pointer arrays for 
 		//  every document. Set everything to the single path that 
@@ -126,23 +154,6 @@ public class HierarchicalLDA {
 				node = path[ levels[doc][token] ];
 				node.totalTokens++;
 				node.typeCounts[type]++;
-			}
-		}
-		
-		// Initialize the levels_test and documentLeaves for testing data without adding
-		// the initialized statistics to the model
-		levels_test = new int[testing.size()][];
-		documentLeaves_test = new NCRPNode[testing.size()];
-
-		for (int test_doc=0; test_doc < numDocuments; test_doc++) {
-            FeatureSequence fs = (FeatureSequence) testing.get(test_doc).getData();
-            int seqLen = fs.getLength();
-
-			levels_test[test_doc] = new int[seqLen];
-			documentLeaves_test[test_doc] = path[numLevels - 1];
-
-			for (int token=0; token < seqLen; token++) {
-				levels_test[test_doc][token] = random.nextInt(numLevels);
 			}
 		}
 	}
@@ -261,6 +272,9 @@ public class HierarchicalLDA {
 	}
 	
 	public double[] predict(int test_doc, int burnin, int sampleSpace) {
+		// Randomly allocate an existing path to the testing document
+		initializeTestDoc(test_doc);
+		
 		// Adding the initialized statistics of the test_doc into the model
 		loadTestDocument(test_doc);
 		
@@ -294,14 +308,14 @@ public class HierarchicalLDA {
 	}
 	
 	public void samplePath_test(int test_doc, int iteration) {
-		samplePath(this.levels_test, this.documentLeaves_test, test_doc, iteration);
+		samplePath(this.testing, this.levels_test, this.documentLeaves_test, test_doc, iteration);
 	}
 	
 	public void samplePath(int doc, int iteration) {
-		samplePath(this.levels, this.documentLeaves, doc, iteration);
+		samplePath(this.instances, this.levels, this.documentLeaves, doc, iteration);
 	}
 	
-    public void samplePath(int[][] levels, NCRPNode[] documentLeaves, int doc, int iteration) {
+    public void samplePath(InstanceList instances, int[][] levels, NCRPNode[] documentLeaves, int doc, int iteration) {
 		NCRPNode[] path = new NCRPNode[numLevels]; // old path for the current document
 		NCRPNode node;
 		int level, token, type, topicCount;
@@ -864,5 +878,19 @@ public class HierarchicalLDA {
 			return out.toString();
 		}
 
+    }
+    
+    static private double logSum(double logx1, double logx2) {
+    	return logx1>logx2? logx2+Math.log(1+Math.exp(logx2-logx1)) : logx1+Math.log(1+Math.exp(logx1-logx2));
+    }
+    
+    static double computeHarmonicMean(double[] logLikelihoodArray) {
+    	double r = -100;
+    	for(int i=0; i<logLikelihoodArray.length; i++) {
+    		r = logSum(r, -logLikelihoodArray[i]);
+    	}
+    	r = Math.log(logLikelihoodArray.length) - r;
+    	
+    	return r;
     }
 }
