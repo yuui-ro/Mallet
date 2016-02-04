@@ -28,6 +28,9 @@ public class HierarchicalLDA {
     int[][] levels; // indexed < doc, token >
     NCRPNode[] documentLeaves; // currently selected path (ie leaf node) through the NCRP tree
 
+    int[][] levels_test; // indexed < doc, token >
+    NCRPNode[] documentLeaves_test; // currently selected path (ie leaf node) through the NCRP tree
+    
 	int totalNodes = 0;
 
 	String stateFile = "hlda.state";
@@ -125,6 +128,23 @@ public class HierarchicalLDA {
 				node.typeCounts[type]++;
 			}
 		}
+		
+		// Initialize the levels_test and documentLeaves for testing data without adding
+		// the initialized statistics to the model
+		levels_test = new int[testing.size()][];
+		documentLeaves_test = new NCRPNode[testing.size()];
+
+		for (int test_doc=0; test_doc < numDocuments; test_doc++) {
+            FeatureSequence fs = (FeatureSequence) testing.get(test_doc).getData();
+            int seqLen = fs.getLength();
+
+			levels_test[test_doc] = new int[seqLen];
+			documentLeaves_test[test_doc] = path[numLevels - 1];
+
+			for (int token=0; token < seqLen; token++) {
+				levels_test[test_doc][token] = random.nextInt(numLevels);
+			}
+		}
 	}
 
 	public void estimate(int numIterations) {
@@ -149,8 +169,140 @@ public class HierarchicalLDA {
 		}
     }
 
-    public void samplePath(int doc, int iteration) {
-		NCRPNode[] path = new NCRPNode[numLevels];
+	private void loadTestDocument(int test_doc) {
+        FeatureSequence fs = (FeatureSequence) testing.get(test_doc).getData();
+        NCRPNode[] path = new NCRPNode[numLevels]; // initialized path for the current test document
+        
+		rootNode.customers++;
+		NCRPNode node = documentLeaves_test[test_doc];
+		for (int level = numLevels - 1; level >= 0; level--) {
+			path[level] = node;
+			node = node.parent;
+		}
+		
+		for (int level = 1; level < numLevels; level++) {
+			path[level] = path[level-1].select();
+			path[level].customers++;
+		}
+		node = path[numLevels - 1];
+    
+		int seqLen = fs.getLength();
+		for (int token=0; token < seqLen; token++) {
+			int type = fs.getIndexAtPosition(token);
+			node = path[ levels_test[test_doc][token] ];
+			node.totalTokens++;
+			node.typeCounts[type]++;
+		}
+	}
+	
+	private void removeTestDocument(int test_doc){
+		int[] docLevels;
+		int level, type;
+		
+		NCRPNode[] path = new NCRPNode[numLevels]; // old path for the current document
+		NCRPNode node;
+		
+		node = documentLeaves_test[test_doc]; // retrieve the path allocated to the test document
+		for (level = numLevels - 1; level >= 0; level--) {
+			path[level] = node;
+			node = node.parent;
+		}
+
+		docLevels = levels_test[test_doc];
+		FeatureSequence fs = (FeatureSequence) testing.get(test_doc).getData();
+	    
+		for (int token = 0; token < docLevels.length; token++) {
+			level = docLevels[token];
+			type = fs.getIndexAtPosition(token);
+	    
+			path[level].typeCounts[type]--;
+			assert(path[level].typeCounts[type] >= 0);
+	    
+			path[level].totalTokens--;	    
+			assert(path[level].totalTokens >= 0);
+		}
+
+	}
+	
+	private double empiricalTestDocLogLikelihood(int test_doc) {
+        double logLikelihood = 0.0;
+        
+		int[] docLevels;
+		int level, type;
+		
+		NCRPNode[] path = new NCRPNode[numLevels]; // old path for the current document
+		NCRPNode node;
+		
+		node = documentLeaves_test[test_doc]; // retrieve the path allocated to the test document
+		for (level = numLevels - 1; level >= 0; level--) {
+			path[level] = node;
+			node = node.parent;
+		}
+
+		docLevels = levels_test[test_doc];
+		FeatureSequence fs = (FeatureSequence) testing.get(test_doc).getData();
+	    
+		// First remove the test document from the model,
+		// and compute the empirical log likelihood by adding each word back to model
+		removeTestDocument(test_doc);
+		
+		for (int token = 0; token < docLevels.length; token++) {
+			level = docLevels[token];
+			type = fs.getIndexAtPosition(token);
+			
+			logLikelihood += (eta + path[level].typeCounts[type]) / (etaSum + path[level].totalTokens);
+			
+			// Add the current word back to model
+			path[level].typeCounts[type]++;
+			path[level].totalTokens++;	    
+		}
+		
+		return logLikelihood;
+	}
+	
+	public double[] predict(int test_doc, int burnin, int sampleSpace) {
+		// Adding the initialized statistics of the test_doc into the model
+		loadTestDocument(test_doc);
+		
+		for (int iteration = 1; iteration <= burnin; iteration++) {
+			samplePath_test(test_doc, iteration);
+			sampleTopics_test(test_doc);
+
+			if (showProgress) {
+				System.out.print(".");
+				if (iteration % 50 == 0) {
+					System.out.println(" " + iteration);
+				}
+			}
+
+			if (iteration % displayTopicsInterval == 0) {
+				printNodes();
+			}
+		}
+		
+		double[] loglik = new double[sampleSpace];
+		for (int iteration = 0; iteration < sampleSpace; iteration++) {
+			samplePath_test(test_doc, iteration);
+			sampleTopics_test(test_doc);
+			loglik[iteration] = empiricalTestDocLogLikelihood(test_doc);
+		}
+		
+		// Remove the statistics of the current test document from the model
+		removeTestDocument(test_doc);
+		
+		return loglik;
+	}
+	
+	public void samplePath_test(int test_doc, int iteration) {
+		samplePath(this.levels_test, this.documentLeaves_test, test_doc, iteration);
+	}
+	
+	public void samplePath(int doc, int iteration) {
+		samplePath(this.levels, this.documentLeaves, doc, iteration);
+	}
+	
+    public void samplePath(int[][] levels, NCRPNode[] documentLeaves, int doc, int iteration) {
+		NCRPNode[] path = new NCRPNode[numLevels]; // old path for the current document
 		NCRPNode node;
 		int level, token, type, topicCount;
 		double weight;
@@ -368,6 +520,14 @@ public class HierarchicalLDA {
     }
 
     public void sampleTopics(int doc) {
+    	sampleTopics(this.levels, this.documentLeaves, doc);
+    }
+    
+    public void sampleTopics_test(int test_doc) {
+    	sampleTopics(this.levels_test, this.documentLeaves_test, test_doc);
+    }
+    
+    public void sampleTopics(int[][] levels, NCRPNode[] documentLeaves, int doc) {
 		FeatureSequence fs = (FeatureSequence) instances.get(doc).getData();
 		int seqLen = fs.getLength();
 		int[] docLevels = levels[doc];
