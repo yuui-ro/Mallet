@@ -534,14 +534,14 @@ public class HierarchicalLDA {
     }
 
     public void sampleTopics(int doc) {
-    	sampleTopics(this.levels, this.documentLeaves, doc);
+    	sampleTopics(this.instances, this.levels, this.documentLeaves, doc);
     }
     
     public void sampleTopics_test(int test_doc) {
-    	sampleTopics(this.levels_test, this.documentLeaves_test, test_doc);
+    	sampleTopics(this.testing, this.levels_test, this.documentLeaves_test, test_doc);
     }
     
-    public void sampleTopics(int[][] levels, NCRPNode[] documentLeaves, int doc) {
+    public void sampleTopics(InstanceList instances, int[][] levels, NCRPNode[] documentLeaves, int doc) {
 		FeatureSequence fs = (FeatureSequence) instances.get(doc).getData();
 		int seqLen = fs.getLength();
 		int[] docLevels = levels[doc];
