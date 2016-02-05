@@ -78,11 +78,6 @@ public class HierarchicalLDA {
 	}
 
 	public void initializeTestDoc(int test_doc) {
-		// Initialize the levels_test and documentLeaves_test for testing data
-		// without adding the initialized statistics to the model
-		levels_test = new int[testing.size()][];
-		documentLeaves_test = new NCRPNode[testing.size()];
-		
 		NCRPNode[] path = new NCRPNode[numLevels];
 		
 		// Randomly select a path allocated for a training document
@@ -174,9 +169,9 @@ public class HierarchicalLDA {
 				}
 			}
 
-			if (iteration % displayTopicsInterval == 0) {
+/*			if (iteration % displayTopicsInterval == 0) {
 				printNodes();
-			}
+			}*/
 		}
     }
 
@@ -206,7 +201,7 @@ public class HierarchicalLDA {
 		}
 	}
 	
-	private void removeTestDocument(int test_doc){
+	private void removeTestDocument(int test_doc, boolean dropPath){
 		int[] docLevels;
 		int level, type;
 		
@@ -218,7 +213,10 @@ public class HierarchicalLDA {
 			path[level] = node;
 			node = node.parent;
 		}
-
+		if(dropPath) {
+			documentLeaves_test[test_doc].dropPath();
+		}
+		
 		docLevels = levels_test[test_doc];
 		FeatureSequence fs = (FeatureSequence) testing.get(test_doc).getData();
 	    
@@ -227,10 +225,10 @@ public class HierarchicalLDA {
 			type = fs.getIndexAtPosition(token);
 	    
 			path[level].typeCounts[type]--;
-			assert(path[level].typeCounts[type] >= 0);
+			assert path[level].typeCounts[type] >= 0;
 	    
 			path[level].totalTokens--;	    
-			assert(path[level].totalTokens >= 0);
+			assert path[level].totalTokens >= 0;
 		}
 
 	}
@@ -255,13 +253,14 @@ public class HierarchicalLDA {
 	    
 		// First remove the test document from the model,
 		// and compute the empirical log likelihood by adding each word back to model
-		removeTestDocument(test_doc);
-		
-		for (int token = 0; token < docLevels.length; token++) {
+		removeTestDocument(test_doc, false);
+		for (int token = 0; token < fs.getLength(); token++) {
 			level = docLevels[token];
 			type = fs.getIndexAtPosition(token);
 			
-			logLikelihood += (eta + path[level].typeCounts[type]) / (etaSum + path[level].totalTokens);
+			logLikelihood += Math.log((eta + path[level].typeCounts[type]) / (etaSum + path[level].totalTokens));
+			
+			assert !Double.isNaN(logLikelihood);
 			
 			// Add the current word back to model
 			path[level].typeCounts[type]++;
@@ -281,17 +280,6 @@ public class HierarchicalLDA {
 		for (int iteration = 1; iteration <= burnin; iteration++) {
 			samplePath_test(test_doc, iteration);
 			sampleTopics_test(test_doc);
-
-			if (showProgress) {
-				System.out.print(".");
-				if (iteration % 50 == 0) {
-					System.out.println(" " + iteration);
-				}
-			}
-
-			if (iteration % displayTopicsInterval == 0) {
-				printNodes();
-			}
 		}
 		
 		double[] loglik = new double[sampleSpace];
@@ -301,8 +289,9 @@ public class HierarchicalLDA {
 			loglik[iteration] = empiricalTestDocLogLikelihood(test_doc);
 		}
 		
-		// Remove the statistics of the current test document from the model
-		removeTestDocument(test_doc);
+		// Remove the statistics of the current test document from the model,
+		// including dropping the sampled path from the model
+		removeTestDocument(test_doc, true);
 		
 		return loglik;
 	}
@@ -881,10 +870,10 @@ public class HierarchicalLDA {
     }
     
     static private double logSum(double logx1, double logx2) {
-    	return logx1>logx2? logx2+Math.log(1+Math.exp(logx2-logx1)) : logx1+Math.log(1+Math.exp(logx1-logx2));
+    	return logx1>logx2? logx1+Math.log(1+Math.exp(logx2-logx1)) : logx2+Math.log(1+Math.exp(logx1-logx2));
     }
     
-    static double computeHarmonicMean(double[] logLikelihoodArray) {
+    static public double computeHarmonicMean(double[] logLikelihoodArray) {
     	double r = -100;
     	for(int i=0; i<logLikelihoodArray.length; i++) {
     		r = logSum(r, -logLikelihoodArray[i]);
