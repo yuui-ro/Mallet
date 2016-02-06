@@ -169,9 +169,9 @@ public class HierarchicalLDA {
 				}
 			}
 
-/*			if (iteration % displayTopicsInterval == 0) {
+			if (iteration % displayTopicsInterval == 0) {
 				printNodes();
-			}*/
+			}
 		}
     }
 
@@ -187,7 +187,6 @@ public class HierarchicalLDA {
 		}
 		
 		for (int level = 1; level < numLevels; level++) {
-			path[level] = path[level-1].select();
 			path[level].customers++;
 		}
 		node = path[numLevels - 1];
@@ -213,24 +212,25 @@ public class HierarchicalLDA {
 			path[level] = node;
 			node = node.parent;
 		}
-		if(dropPath) {
-			documentLeaves_test[test_doc].dropPath();
-		}
 		
 		docLevels = levels_test[test_doc];
 		FeatureSequence fs = (FeatureSequence) testing.get(test_doc).getData();
 	    
-		for (int token = 0; token < docLevels.length; token++) {
+		for (int token = 0; token < fs.getLength(); token++) {
 			level = docLevels[token];
 			type = fs.getIndexAtPosition(token);
 	    
 			path[level].typeCounts[type]--;
 			assert path[level].typeCounts[type] >= 0;
 	    
-			path[level].totalTokens--;	    
+			path[level].totalTokens--;
 			assert path[level].totalTokens >= 0;
 		}
 
+		if(dropPath) {
+			documentLeaves_test[test_doc].dropPath();
+		}
+		
 	}
 	
 	private double empiricalTestDocLogLikelihood(int test_doc) {
@@ -260,11 +260,9 @@ public class HierarchicalLDA {
 			
 			logLikelihood += Math.log((eta + path[level].typeCounts[type]) / (etaSum + path[level].totalTokens));
 			
-			assert !Double.isNaN(logLikelihood);
-			
 			// Add the current word back to model
 			path[level].typeCounts[type]++;
-			path[level].totalTokens++;	    
+			path[level].totalTokens++;
 		}
 		
 		return logLikelihood;
